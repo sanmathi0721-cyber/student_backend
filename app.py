@@ -61,10 +61,9 @@ def export_attendance():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-        # Add default users if not exists
         if not User.query.first():
             teacher = User(username="teacher", password="123", role="teacher")
             student = User(username="student", password="123", role="student")
             db.session.add_all([teacher, student])
             db.session.commit()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000)
