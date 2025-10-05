@@ -4,7 +4,7 @@ import sqlite3
 from datetime import date
 
 app = Flask(__name__)
-CORS(app)  # allow frontend to connect
+CORS(app)
 
 DB = "attendance.db"
 
@@ -25,9 +25,10 @@ def login():
     conn.close()
 
     if user:
-        return jsonify({"message": "Login successful", "role": user["role"]})
+        return jsonify({"message": "Login successful", "role": user["role"], "user_id": user["id"]})
     else:
         return jsonify({"error": "Invalid credentials"}), 401
+
 
 @app.route('/students', methods=['GET'])
 def get_students():
@@ -36,6 +37,7 @@ def get_students():
     students = [dict(row) for row in cur.fetchall()]
     conn.close()
     return jsonify(students)
+
 
 @app.route('/mark', methods=['POST'])
 def mark_attendance():
@@ -52,6 +54,7 @@ def mark_attendance():
 
     return jsonify({"message": "Attendance marked successfully"})
 
+
 @app.route('/view/<int:student_id>', methods=['GET'])
 def view_attendance(student_id):
     conn = get_db()
@@ -59,6 +62,7 @@ def view_attendance(student_id):
     records = [dict(row) for row in cur.fetchall()]
     conn.close()
     return jsonify(records)
+
 
 if __name__ == '__main__':
     conn = get_db()
@@ -73,7 +77,7 @@ if __name__ == '__main__':
                         student_id INTEGER, date TEXT, status TEXT)''')
     conn.commit()
 
-    # Add default users
+    # Add default data
     cur = conn.execute("SELECT COUNT(*) as count FROM users")
     if cur.fetchone()["count"] == 0:
         conn.execute("INSERT INTO users (username, password, role) VALUES ('teacher','123','teacher')")
