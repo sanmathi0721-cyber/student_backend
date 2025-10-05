@@ -1,90 +1,70 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import sqlite3
-from datetime import date
+from models import db, User, Attendance
 
 app = Flask(__name__)
 CORS(app)
 
-DB = "attendance.db"
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db.init_app(app)
 
-def get_db():
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ---------- ROUTES ----------
+@app.route("/")
+def home():
+    return jsonify({"message": "Backend is running!"})
 
-@app.route('/login', methods=['POST'])
+@app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-
-    conn = get_db()
-    cur = conn.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
-    user = cur.fetchone()
-    conn.close()
-
+    user = User.query.filter_by(username=data["username"], password=data["password"]).first()
     if user:
-        return jsonify({"message": "Login successful", "role": user["role"], "user_id": user["id"]})
-    else:
-        return jsonify({"error": "Invalid credentials"}), 401
+        return jsonify({"username": user.username, "role": user.role})
+    return jsonify({"error": "Invalid credentials"}), 401
 
 
-@app.route('/students', methods=['GET'])
-def get_students():
-    conn = get_db()
-    cur = conn.execute("SELECT * FROM students")
-    students = [dict(row) for row in cur.fetchall()]
-    conn.close()
-    return jsonify(students)
-
-
-@app.route('/mark', methods=['POST'])
+@app.route("/attendance/mark", methods=["POST"])
 def mark_attendance():
     data = request.get_json()
-    student_id = data.get('student_id')
-    status = data.get('status', 'Present')
-    today = date.today().isoformat()
+    username = data.get("username")
+    status = data.get("status")
 
-    conn = get_db()
-    conn.execute("INSERT INTO attendance (student_id, date, status) VALUES (?, ?, ?)",
-                 (student_id, today, status))
-    conn.commit()
-    conn.close()
+    if not username or not status:
+        return jsonify({"error": "Missing data"}), 400
+
+    attendance = Attendance(username=username, status=status)
+    db.session.add(attendance)
+    db.session.commit()
 
     return jsonify({"message": "Attendance marked successfully"})
 
 
-@app.route('/view/<int:student_id>', methods=['GET'])
-def view_attendance(student_id):
-    conn = get_db()
-    cur = conn.execute("SELECT * FROM attendance WHERE student_id=?", (student_id,))
-    records = [dict(row) for row in cur.fetchall()]
-    conn.close()
-    return jsonify(records)
+@app.route("/attendance/view/<username>", methods=["GET"])
+def view_attendance(username):
+    records = Attendance.query.filter_by(username=username).all()
+    result = [{"id": a.id, "username": a.username, "status": a.status, "date": a.date} for a in records]
+    return jsonify(result)
 
 
-if __name__ == '__main__':
-    conn = get_db()
-    conn.execute('''CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT, password TEXT, role TEXT)''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS students (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT, roll_no TEXT)''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS attendance (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        student_id INTEGER, date TEXT, status TEXT)''')
-    conn.commit()
+@app.route("/attendance/export", methods=["GET"])
+def export_attendance():
+    import csv
+    from io import StringIO
+    records = Attendance.query.all()
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Username", "Status", "Date"])
+    for r in records:
+        writer.writerow([r.id, r.username, r.status, r.date])
+    return output.getvalue(), 200, {"Content-Type": "text/csv"}
 
-    # Add default data
-    cur = conn.execute("SELECT COUNT(*) as count FROM users")
-    if cur.fetchone()["count"] == 0:
-        conn.execute("INSERT INTO users (username, password, role) VALUES ('teacher','123','teacher')")
-        conn.execute("INSERT INTO users (username, password, role) VALUES ('student','123','student')")
-        conn.execute("INSERT INTO students (name, roll_no) VALUES ('John Doe','101')")
-        conn.execute("INSERT INTO students (name, roll_no) VALUES ('Jane Doe','102')")
-        conn.commit()
-
-    conn.close()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+        # Add default users if not exists
+        if not User.query.first():
+            teacher = User(username="teacher", password="123", role="teacher")
+            student = User(username="student", password="123", role="student")
+            db.session.add_all([teacher, student])
+            db.session.commit()
+    app.run(host="0.0.0.0", port=5000, debug=True)
